@@ -1,0 +1,16 @@
+# WebCure — Website Vulnerability Scanner
+# Author  : Chandransh Ranjan
+# Project : WebCure v2.4
+# Standard: OWASP Top 10 (2021)
+#
+# Install: pip install -r requirements.txt
+
+flask>=3.0.0
+flask-cors>=4.0.0
+requests>=2.31.0
+dnspython>=2.4.0
+cryptography>=41.0.0
+beautifulsoup4>=4.12.0
+lxml>=4.9.0
+reportlab>=4.0.0
+gunicorn>=21.2.0
