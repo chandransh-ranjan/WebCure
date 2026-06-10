@@ -22,6 +22,7 @@
 """
 
 # ── Standard library ──────────────────────────────────────────────────────────
+import os
 import re
 import ssl
 import io
@@ -40,8 +41,15 @@ import dns.query
 from bs4 import BeautifulSoup
 from cryptography import x509
 from cryptography.hazmat.backends import default_backend
+from dotenv import load_dotenv
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
+from flask_login import LoginManager, login_required
+
+from models import db, User
+from auth import auth_bp
+
+load_dotenv()
 
 # ── ReportLab (WebCure PDF engine) ────────────────────────────────────────────
 from reportlab.lib.pagesizes import A4
@@ -70,7 +78,41 @@ log = logging.getLogger(WEBCURE_NAME)
 
 # ── Flask app ─────────────────────────────────────────────────────────────────
 app = Flask(__name__)
-CORS(app, resources={r"/api/*": {"origins": "*"}})
+
+# Session secret — required by flask-login
+app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-me-in-production")
+
+# Database — Railway injects DATABASE_URL from the linked Postgres service
+app.config["SQLALCHEMY_DATABASE_URI"] = os.environ.get(
+    "DATABASE_URL", "sqlite:///webcure.db"
+)
+app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
+
+# CORS — allow credentials so the session cookie is sent cross-origin
+CORS(app, resources={r"/api/*": {"origins": os.environ.get("CORS_ORIGINS", "*")}},
+     supports_credentials=True)
+
+# ── Database ──────────────────────────────────────────────────────────────────
+db.init_app(app)
+
+# ── Login manager ─────────────────────────────────────────────────────────────
+login_manager = LoginManager(app)
+login_manager.login_view = "auth.login"
+
+@login_manager.user_loader
+def load_user(user_id: str):
+    return User.query.get(int(user_id))
+
+@login_manager.unauthorized_handler
+def unauthorized():
+    return jsonify({"error": True, "message": "Authentication required."}), 401
+
+# ── Auth blueprint ────────────────────────────────────────────────────────────
+app.register_blueprint(auth_bp)
+
+# ── Create tables on first run ────────────────────────────────────────────────
+with app.app_context():
+    db.create_all()
 
 # ── Scan constants ────────────────────────────────────────────────────────────
 REQUEST_TIMEOUT      = 12
@@ -1256,6 +1298,7 @@ def build_pdf_report(data: dict) -> bytes:
 # ══════════════════════════════════════════════════════════════════════════════
 
 @app.route("/api/scan", methods=["POST"])
+@login_required
 def scan():
     body = request.get_json(force=True, silent=True) or {}
     url  = (body.get("url") or "").strip()
@@ -1276,6 +1319,7 @@ def scan():
 
 
 @app.route("/api/report", methods=["POST"])
+@login_required
 def generate_report():
     data = request.get_json(force=True, silent=True) or {}
     if not data.get("url"):
